@@ -1,0 +1,10 @@
+{
+  "gateway_url": "http://192.168.0.1:8080/opcFileSave",
+  "deviceid": "JD01",
+  "dataid": "CHEONAN.JD16.GTC,CHEONAN.JD16.P12P16_EVENT,CHEONAN.JD16.TICL4_NEW,CHEONAN.JD16.CAT",
+  "scan_path": "D:\\PROJECT\\REPORT_DATA\\GTC,D:\\PROJECT\\REPORT_DATA\\P12P16_EVENT,D:\\PROJECT\\REPORT_DATA\\TICL4_NEW,D:\\PROJECT\\REPORT_DATA\\�˸�",
+  "scan_file": ".csv,.xls,.xlsx,.dbf",
+  "scan_interval": 60,
+  "lastchktime": "2025-09-01 00:00:00",
+  "headerline": "1,1,[1,2],1"
+}
