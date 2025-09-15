@@ -121,7 +121,7 @@ pip install -r requirements.txt
 
 #### Windows
 
-- **시작**: `run.bat` 파일을 더블클릭하거나 터미널에서 실행합니다. 새로운 콘솔 창에서 실행됩니다.
+- **시작**: `run.bat` 파일을 더블클릭하거나 터미널에서 실행합니다. 새로운 콘솔 창에서 실행됩니다. (nssm과 같은 툴을 활용하여 윈도우 서비스 등록 추천)
   ```bash
   run.bat
   ```
@@ -141,9 +141,8 @@ pip install -r requirements.txt
     ```
 3.  서비스 삭제가 필요한 경우 `uninstall_service.sh`를 사용합니다.
     `bash
-    sudo sh uninstall_service.sh
-    `
-    > **주의**: `install_service.sh` 파일 내부의 `USER`와 `WorkingDirectory` 변수를 실제 환경에 맞게 수정해야 할 수 있습니다.
+sudo sh uninstall_service.sh
+` > **주의**: `install_service.sh` 파일 내부의 `USER`와 `WorkingDirectory` 변수를 실제 환경에 맞게 수정해야 할 수 있습니다.
 
 ### 3. 직접 실행 (테스트 및 디버깅용)
 
@@ -161,7 +160,3 @@ pip install -r requirements.txt
   cd fileSend
   python lmagent.py
   ```
-
-## License
-
-[MIT](LICENSE)
