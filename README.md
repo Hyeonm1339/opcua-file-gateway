@@ -16,17 +16,20 @@
 [데이터 파일]----(감지)----> [lmagent.py] ----(HTTP 전송)----> [lmfilerecv.py] ----(OPC-UA)----> [OPC-UA 서버]
 ```
 
-1.  **`lmagent.py` (File Sender)**
+### 1. `lmagent.py` (File Sender)
 
-    - 로컬 또는 원격 서버의 특정 폴더를 주기적으로 스캔합니다.
-    - `config.json`에 명시된 `lastchktime` 이후로 변경된 파일을 감지합니다.
-    - 감지된 파일을 `lmfilerecv.py` 서버로 HTTP POST를 통해 전송합니다.
+`lmagent.py`는 지정된 폴더를 감시하여 파일의 변경사항을 서버로 전송하는 경량 에이전트입니다.
 
-2.  **`lmfilerecv.py` (File Receiver & Processor)**
-    - `lmagent.py`로부터 파일을 수신하여 지정된 경로에 저장합니다.
-    - 백그라운드 워커가 저장된 파일을 순차적으로 처리합니다.
-    - 파일 형식과 `headerline` 설정에 맞춰 데이터를 파싱합니다.
-    - 파싱된 데이터를 OPC-UA 서버의 해당 노드(태그)에 씁니다.
+- **초기화**: 시작 시 `config.json` 파일을 읽어 모니터링할 대상(`scan_path`, `dataid`, `headerline` 등)과 마지막으로 전송에 성공했던 시간(`lastchktime`)을 불러옵니다.
+- **파일 스캔**: `scan_interval` 주기로 `scan_path`에 지정된 폴더들을 스캔하여 `lastchktime` 이후에 수정된 파일을 찾습니다.
+- **전송**: 새로 수정된 파일들을 수정 시간 순서대로 정렬하여 가장 오래된 파일부터 하나씩 `lmfilerecv.py` 서버에 HTTP POST로 전송합니다. 파일 전송이 성공할 때마다 `lastchktime`을 해당 파일의 수정 시간으로 갱신하여, 중간에 통신이 끊겨도 데이터 유실 없이 다음 주기부터 재전송이 가능합니다.
+
+### 2. `lmfilerecv.py` (File Receiver & Processor)
+
+`lmfilerecv.py`는 `lmagent`로부터 파일을 수신하여 파싱하고 OPC-UA 서버에 기록하는 핵심 서버 프로그램입니다. 두 가지 요소가 동시에 동작합니다.
+
+- **웹 서버 (Flask)**: `lmagent`로부터 파일과 메타데이터(dataid, headerline 등)를 HTTP 요청으로 수신합니다. 수신된 원본 파일과 메타데이터를 담은 `.json` 파일을 `save_path`에 저장하여 백그라운드 워커가 처리할 수 있도록 대기시킵니다.
+- **백그라운드 워커 (Background Thread)**: `save_path`를 주기적으로 스캔하여 아직 처리되지 않은 새 파일을 찾습니다. 파일을 발견하면, 함께 저장된 `.json` 파라미터 파일을 읽어 `headerline` 등의 설정을 적용하여 엑셀, CSV 등의 데이터를 파싱합니다. 최종적으로 파싱된 데이터를 OPC-UA 서버에 전송하고, 성공적으로 처리된 파일은 로그에 기록하여 중복 처리를 방지합니다.
 
 ## 기술 스택
 
@@ -43,7 +46,6 @@
 프로젝트 루트 경로에 `requirements.txt` 파일을 생성하고 아래 내용을 추가한 뒤, 라이브러리를 설치합니다.
 
 **`requirements.txt`**
-
 ```
 pandas
 opcua
@@ -54,80 +56,18 @@ openpyxl
 ```
 
 **설치 명령어**
-
 ```bash
 pip install -r requirements.txt
 ```
 
-## 설정
+## 설정 및 실행
 
-#### File Receiver (`fielRecv/config.json`)
+각 프로그램의 상세한 설정 및 실행 방법은 해당 폴더의 `README.md` 파일을 참고하십시오.
 
-파일을 수신하여 OPC-UA 서버로 전송하는 서버의 설정입니다.
+- **[File Receiver (fielRecv/README.md)](./fielRecv/README.md)**
+- **[File Sender (fileSend/README.md)](./fileSend/README.md)**
 
-```json
-{
-  "opc_server_url": "opc.tcp://127.0.0.1:4840/",
-  "save_path": "/path/to/save/received/files",
-  "processed_log_file": "processed.log"
-}
-```
-
-- `opc_server_url`: 연결할 OPC-UA 서버의 주소입니다.
-- `save_path`: `lmagent`로부터 수신한 파일을 저장할 기본 경로입니다.
-- `processed_log_file`: 처리가 완료된 파일 목록을 기록할 로그 파일 이름입니다.
-
-#### File Sender (`fileSend/config.json`)
-
-파일 변경을 감지하여 전송하는 에이전트의 설정입니다.
-
-```json
-{
-  "gateway_url": "http://127.0.0.1:8080/opcFileSave",
-  "deviceid": "YOUR_DEVICE_ID",
-  "dataid": "DATAID_1,DATAID_2",
-  "scan_path": "/path/to/monitor1,/path/to/monitor2",
-  "scan_file": ".csv,.xls,.xlsx,.dbf",
-  "scan_interval": 60,
-  "lastchktime": "2025-09-01 00:00:00",
-  "headerline": "1,[1,2]"
-}
-```
-
-- `gateway_url`: `lmfilerecv.py` 서버의 파일 수신 주소입니다.
-- `deviceid`: 데이터를 보내는 장비의 고유 ID입니다.
-- `dataid`: `scan_path`의 각 경로에 매칭되는 데이터 ID 목록입니다. (콤마로 구분)
-- `scan_path`: 모니터링할 폴더 경로 목록입니다. (콤마로 구분)
-- `headerline`: `scan_path`의 각 경로에 해당하는 파일의 헤더 라인 정보입니다. (콤마로 구분, 다중 헤더는 `[1,2]` 형식)
-- `scan_interval`: 폴더를 스캔할 주기(초)입니다.
-- `lastchktime`: 에이전트가 마지막으로 파일을 확인한 시간입니다. 이 시간 이후에 수정된 파일만 전송됩니다.
-
-## 실행
-
-`fielRecv`와 `fileSend` 각 폴더에서 아래의 방법으로 실행할 수 있습니다.
-
-### 1. 스크립트를 이용한 실행
-
-#### Linux / macOS
-
-- **시작**: `start.sh`를 실행하면 프로세스가 백그라운드에서 동작합니다.
-  ```bash
-  sh start.sh
-  ```
-- **종료**: `shutdown.sh`를 실행하면 백그라운드에서 동작 중인 프로세스를 종료합니다.
-  ```bash
-  sh shutdown.sh
-  ```
-
-#### Windows
-
-- **시작**: `run.bat` 파일을 더블클릭하거나 터미널에서 실행합니다. 새로운 콘솔 창에서 실행됩니다. (nssm과 같은 툴을 활용하여 윈도우 서비스 등록 추천)
-  ```bash
-  run.bat
-  ```
-- **종료**: 실행된 콘솔 창을 직접 닫거나, `Ctrl + C`를 눌러 종료합니다.
-
-### 2. 서비스로 등록하여 실행 (Linux)
+### 서비스로 등록하여 실행 (Linux)
 
 `systemd`를 사용하여 각 애플리케이션을 서비스로 등록하면, 시스템 부팅 시 자동으로 시작되고 안정적으로 관리할 수 있습니다.
 
@@ -135,28 +75,16 @@ pip install -r requirements.txt
     ```bash
     chmod +x install_service.sh
     ```
-2.  스크립트를 `sudo` 권한으로 실행하여 서비스를 등록합니다. 이 스크립트는 `fielRecv`와 `fileSend`를 모두 서비스로 등록합니다.
+2.  스크립트를 `sudo` 권한으로 실행하여 서비스를 등록합니다.
     ```bash
     sudo sh install_service.sh
     ```
 3.  서비스 삭제가 필요한 경우 `uninstall_service.sh`를 사용합니다.
-    `bash
-sudo sh uninstall_service.sh
-` > **주의**: `install_service.sh` 파일 내부의 `USER`와 `WorkingDirectory` 변수를 실제 환경에 맞게 수정해야 할 수 있습니다.
+    ```bash
+    sudo sh uninstall_service.sh
+    ```
+> **주의**: `install_service.sh` 파일 내부의 `USER`와 `WorkingDirectory` 변수를 실제 환경에 맞게 수정해야 할 수 있습니다.
 
-### 3. 직접 실행 (테스트 및 디버깅용)
+## License
 
-포그라운드에서 직접 실행하여 로그를 실시간으로 확인할 때 유용합니다.
-
-- **File Receiver 서버 시작**
-
-  ```bash
-  cd fielRecv
-  python lmfilerecv.py
-  ```
-
-- **File Sender 에이전트 시작**
-  ```bash
-  cd fileSend
-  python lmagent.py
-  ```
+[MIT](LICENSE)
