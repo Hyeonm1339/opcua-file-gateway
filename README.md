@@ -46,6 +46,7 @@
 프로젝트 루트 경로에 `requirements.txt` 파일을 생성하고 아래 내용을 추가한 뒤, 라이브러리를 설치합니다.
 
 **`requirements.txt`**
+
 ```
 pandas
 opcua
@@ -56,6 +57,7 @@ openpyxl
 ```
 
 **설치 명령어**
+
 ```bash
 pip install -r requirements.txt
 ```
@@ -64,7 +66,7 @@ pip install -r requirements.txt
 
 각 프로그램의 상세한 설정 및 실행 방법은 해당 폴더의 `README.md` 파일을 참고하십시오.
 
-- **[File Receiver (fielRecv/README.md)](./fielRecv/README.md)**
+- **[File Receiver (fielRecv/README.md)](./fileRecv/README.md)**
 - **[File Sender (fileSend/README.md)](./fileSend/README.md)**
 
 ### 서비스로 등록하여 실행 (Linux)
@@ -80,10 +82,10 @@ pip install -r requirements.txt
     sudo sh install_service.sh
     ```
 3.  서비스 삭제가 필요한 경우 `uninstall_service.sh`를 사용합니다.
-    ```bash
+    `bash
     sudo sh uninstall_service.sh
-    ```
-> **주의**: `install_service.sh` 파일 내부의 `USER`와 `WorkingDirectory` 변수를 실제 환경에 맞게 수정해야 할 수 있습니다.
+    `
+    > **주의**: `install_service.sh` 파일 내부의 `USER`와 `WorkingDirectory` 변수를 실제 환경에 맞게 수정해야 할 수 있습니다.
 
 ## License
 
