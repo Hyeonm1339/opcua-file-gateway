@@ -27,6 +27,8 @@
   - 파일 전체가 아닌, 파일 내부의 **행(row)** 단위로 처리 상태를 관리합니다.
   - `worker/last_row_info.json` 파일에 파일 및 시트별로 마지막으로 전송한 행의 시간(timestamp)을 기록합니다.
   - 이미 처리된 파일에 새로운 행이 추가되어 다시 전송될 경우, 마지막 처리 시간 이후의 **새로운 행만** 정확히 선별하여 OPC-UA 서버로 전송합니다.
+- **데이터 타입 자동 변환**: 정수, 소수, 문자열 등 데이터 타입에 맞게 OPC-UA Variant 타입으로 변환하여 전송합니다. 소수점은 8자리까지 정밀도를 유지하며 깔끔하게 표시됩니다.
+- **`TIME` 값 전송 안정화**: 각 행의 `TIME` 컬럼 값을 항상 마지막에 전송하여, OPC-UA 서버에서 시간 정보가 정확하게 기록되도록 합니다.
 
 #### 3. OPC-UA 태그 매핑 규칙
 
@@ -56,12 +58,30 @@
 
 #### 1. 파일 수신 서버 (`lmfilerecv` 폴더)
 
-- **시작**: `./start.sh`
-- **종료**: `./shutdown.sh`
-- **로그**: `lmfilerecv.log` 파일 확인
+- **시작**
+  ```bash
+  ./start.sh
+  ```
+- **종료**
+  ```bash
+  ./shutdown.sh
+  ```
+- **로그 확인**
+  ```bash
+  tail -f lmfilerecv.log
+  ```
 
 #### 2. 파일 처리 워커 (`worker` 폴더)
 
-- **시작**: `./start.sh`
-- **종료**: `./shutdown.sh`
-- **로그**: `worker.log` 파일 확인
+- **시작**
+  ```bash
+  ./worker/start.sh
+  ```
+- **종료**
+  ```bash
+  ./worker/shutdown.sh
+  ```
+- **로그 확인**
+  ```bash
+  tail -f worker/worker.log
+  ```
