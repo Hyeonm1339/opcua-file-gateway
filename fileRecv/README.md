@@ -85,3 +85,20 @@
   ```bash
   tail -f worker/worker.log
   ```
+- **종료**: 실행된 콘솔 창을 직접 닫거나, `Ctrl + C`를 눌러 종료합니다.
+
+#### 직접 실행 (테스트 및 디버깅용)
+
+```bash
+python lmfilerecv.py
+```
+
+- **오류 기록용도**
+
+```
+Traceback (most recent call last):
+  File "lmfilerecv.py", line 17, in <module>
+    from flask import Flask, request, jsonify
+ModuleNotFoundError: No module named 'flask'
+파이썬 패키지 설치필요 pop install flask
+```
