@@ -81,3 +81,12 @@
 ```bash
 python lmfilerecv.py
 ```
+
+###오류처리
+Traceback (most recent call last):
+  File "lmfilerecv.py", line 17, in <module>
+    from flask import Flask, request, jsonify
+ModuleNotFoundError: No module named 'flask'
+
+-> 파이썬 패키지 설치필요 pop install flask
+
