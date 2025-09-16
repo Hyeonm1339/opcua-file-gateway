@@ -1,7 +1,7 @@
 #!/bin/bash
-# lmfilerecv.py 프로세스를 찾아 종료합니다.
+# worker.py 프로세스를 찾아 종료합니다.
 
-PROCESS_NAME="lmfilerecv.py"
+PROCESS_NAME="worker.py"
 
 # 프로세스 ID 찾기
 PID=$(pgrep -f "${PROCESS_NAME}")

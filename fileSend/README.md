@@ -1,6 +1,6 @@
 ## File Sender (lmagent.py)
 
-지정된 폴더를 감시하여 파일의 변경사항을 File Receiver 서버로 전송하는 경량 에이전트입니다.
+지정된 폴더를 감시하여 파일의 변경사항을 File Receiver 서버로 전송하는 경량 에이전트입니다. 에이전트는 파일 전송 역할만 담당하며, 수신된 파일의 처리 및 OPC-UA 전송은 File Receiver 시스템에서 이루어집니다.
 
 ### 설정 (`config.json`)
 
@@ -31,11 +31,11 @@
 
 - **시작**: `start.sh`를 실행하면 프로세스가 백그라운드에서 동작합니다.
   ```bash
-  sh start.sh
+  ./start.sh
   ```
 - **종료**: `shutdown.sh`를 실행하면 백그라운드에서 동작 중인 프로세스를 종료합니다.
   ```bash
-  sh shutdown.sh
+  ./shutdown.sh
   ```
 
 #### Windows

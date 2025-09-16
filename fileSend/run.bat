@@ -10,4 +10,4 @@ REM python.exe가 환경변수에 잡혀있지 않은 경우를 대비해 py 런
 REM 시스템에 맞게 'python' 또는 파이썬 실행파일의 전체 경로를 사용해도 됩니다.
 
 REM python 스크립트를 실행합니다. 스크립트 내의 무한루프가 계속 실행됩니다.
-py -3 lmagent.py
+python lmagent.py >> run.log &

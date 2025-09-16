@@ -43,13 +43,16 @@ def get_files_to_send(paths_str, dataids_str, headerlines_str, fexts_str, last_c
     # headerline 문자열을 파싱하여 리스트로 변환 (예: "1,1,[1,2],1" -> ['1', '1', '[1,2]', '1'])
     headerlines = re.findall(r'(\[[^\]]+\]|[^,]+)', headerlines_str)
 
+    logging.info("get_files_to_send: 스캔 시작")
     # 각 경로를 순회하며 파일을 스캔한다.
     for index, directory in enumerate(paths):
+        logging.info("get_files_to_send: 경로 확인 중: {}".format(directory))
         try:
             # 해당 디렉토리의 파일 목록을 가져온다.
             files = os.listdir(directory)
+            logging.info("get_files_to_send: 경로에서 {}개의 파일을 찾음: {}".format(len(files), directory))
         except Exception as e:
-            logging.error(f"디렉토리({directory}) 확인 중 오류 발생: {e}")
+            logging.error("디렉토리({}) 확인 중 오류 발생: {}".format(directory, e))
             continue  # 접근할 수 없는 디렉토리는 건너뛴다.
 
         dataid = dataids[index]
@@ -80,29 +83,31 @@ def get_files_to_send(paths_str, dataids_str, headerlines_str, fexts_str, last_c
                         })
                 except FileNotFoundError:
                     # 스캔 도중 파일이 삭제되는 경우를 대비한 예외 처리.
-                    logging.warning(f"스캔 중 파일을 찾을 수 없음: {file_path}")
+                    logging.warning("스캔 중 파일을 찾을 수 없음: {}".format(file_path))
                     continue
     
     # 전송할 파일들을 수정 시간(mtime) 기준으로 오름차순 정렬. (오래된 파일부터 보내기 위함)
     files_to_send.sort(key=lambda x: x['mtime'])
     return files_to_send
 
-def update_lastchktime_in_config(new_time_str):
+def update_lastchktime_in_config(new_time_float):
     # config.json 파일의 lastchktime 값을 안전하게 업데이트하는 함수이다.
     try:
         # 설정 파일을 읽어서 JSON 객체로 로드.
-        with open("config.json", "r") as f:
+        with open("config.json", "r", encoding="utf-8") as f:
             config = json.load(f)
         
-        # lastchktime 값을 새로운 시간 문자열로 변경.
+        # float 타임스탬프를 밀리초까지 포함하는 문자열로 변환
+        new_time_str = datetime.datetime.fromtimestamp(new_time_float).strftime('%Y-%m-%d %H:%M:%S.%f')
         config['lastchktime'] = new_time_str
         
         # 수정된 config 객체를 다시 파일에 덮어쓴다. (indent=2로 가독성 좋게 저장)
-        with open("config.json", "w") as f:
-            json.dump(config, f, indent=2)
-        logging.info(f"lastchktime 값을 다음으로 업데이트: {new_time_str}")
+        # ensure_ascii=False로 한글이 깨지지 않게 저장
+        with open("config.json", "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        logging.info("lastchktime 값을 다음으로 업데이트: {}".format(new_time_str))
     except Exception as e:
-        logging.error(f"config.json 업데이트 중 오류 발생: {e}")
+        logging.error("config.json 업데이트 중 오류 발생: {}".format(e))
 
 
 if __name__ == '__main__':
@@ -124,7 +129,8 @@ if __name__ == '__main__':
         config = None
         # --- 1. 설정 파일 로드 ---
         try:
-            with open("config.json", "r") as json_file:
+            # UTF-8 인코딩으로 config.json 파일을 읽음
+            with open("config.json", "r", encoding="utf-8") as json_file:
                 config = json.load(json_file)
         except Exception as e:
             logging.exception("config.json 로드 오류. 10초 후 재시도...")
@@ -142,9 +148,13 @@ if __name__ == '__main__':
         headerline_str = getValue(config, 'headerline', '1') 
 
         # 마지막 확인 시간을 문자열에서 타임스탬프(float)로 변환.
-        lastmtime_ts = time.mktime(datetime.datetime.strptime(lastchktime_str, '%Y-%m-%d %H:%M:%S').timetuple())
-        
-        logging.info(f"설정된 시간({lastchktime_str}) 이후로 수정된 파일을 스캔합니다...")
+        # 밀리초 포맷과 기존 포맷을 모두 지원하기 위한 예외 처리
+        try:
+            lastmtime_ts = datetime.datetime.strptime(lastchktime_str, '%Y-%m-%d %H:%M:%S.%f').timestamp()
+        except ValueError:
+            lastmtime_ts = datetime.datetime.strptime(lastchktime_str, '%Y-%m-%d %H:%M:%S').timestamp()
+
+        logging.info("설정된 시간({}) 이후로 수정된 파일을 스캔합니다...".format(lastchktime_str))
         
         # --- 3. 전송 대상 파일 목록 가져오기 ---
         slist = get_files_to_send(scan_path_str, dataid_str, headerline_str, scan_file_str, lastmtime_ts)
@@ -159,10 +169,10 @@ if __name__ == '__main__':
                 upload = {'filename': ""}
                 requests.post(url=gateway_url, timeout=10, data=params, files=upload)
             except Exception as e:
-                logging.warning(f"Live-check 전송 오류: {e}")
+                logging.warning("Live-check 전송 오류: {}".format(e))
         else:
             # 전송할 파일이 있는 경우.
-            logging.info(f"총 {len(slist)}개의 새로운 파일을 발견했습니다.")
+            logging.info("총 {}개의 새로운 파일을 발견했습니다.".format(len(slist)))
             # 정렬된 목록(slist)을 순회하며 파일 전송.
             for f_info in slist:
                 file_path = f_info['file_path']
@@ -173,7 +183,7 @@ if __name__ == '__main__':
                 path_parts = os.path.split(file_path)
                 fname = path_parts[1]
                 
-                logging.info(f"파일 전송 시도: {fname} (수정 시간: {timefmt(file_mtime)})")
+                logging.info("파일 전송 시도: {} (수정 시간: {})".format(fname, timefmt(file_mtime)))
 
                 try:
                     # 파일을 바이너리 읽기 모드('rb')로 연다.
@@ -195,23 +205,23 @@ if __name__ == '__main__':
                         # --- 5. 전송 성공/실패 처리 ---
                         if response.status_code == 200:
                             # 전송 성공 시 (HTTP 상태 코드 200).
-                            logging.info(f"성공적으로 전송 완료: {fname}.")
+                            logging.info("성공적으로 전송 완료: {}.".format(fname))
                             
-                            # 중요: config.json의 lastchktime을 방금 보낸 파일의 수정 시간으로 업데이트.
-                            update_lastchktime_in_config(timefmt(file_mtime))
+                            # 중요: config.json의 lastchktime을 방금 보낸 파일의 수정 시간(float)으로 업데이트.
+                            update_lastchktime_in_config(file_mtime)
 
                         else:
                             # 전송 실패 시.
-                            logging.error(f"전송 실패: {fname}. 상태 코드: {response.status_code}. 이번 주기의 추가 전송을 중단합니다.")
+                            logging.error("전송 실패: {}. 상태 코드: {}. 이번 주기의 추가 전송을 중단합니다.".format(fname, response.status_code))
                             # 전송에 실패하면 현재 사이클을 중단. 다음 사이클에서 이 파일부터 다시 시도하게 됨.
                             break
 
                 except Exception as e:
                     # requests.post에서 발생할 수 있는 모든 예외(네트워크 오류 등)를 처리.
-                    logging.exception(f"파일({fname}) 전송 중 예외 발생. 이번 주기의 추가 전송을 중단합니다.")
+                    logging.exception("파일({}) 전송 중 예외 발생. 이번 주기의 추가 전송을 중단합니다.".format(fname))
                     # 예외 발생 시에도 현재 사이클을 중단.
                     break
         
         # --- 6. 다음 스캔까지 대기 ---
-        logging.info(f"{scan_interval}초 후 다음 스캔을 시작합니다...")
+        logging.info("{}초 후 다음 스캔을 시작합니다...".format(scan_interval))
         time.sleep(scan_interval)

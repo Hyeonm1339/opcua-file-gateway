@@ -1,0 +1,5 @@
+{
+  "save_path": "/opcdata/save",
+  "processed_log_file": "/opcdata/log/processed.log",
+  "opc_server_url": "opc.tcp://127.0.0.1:4840/"
+}
