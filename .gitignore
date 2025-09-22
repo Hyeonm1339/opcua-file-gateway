@@ -1,1 +1,2 @@
-./opcConfig/*
+/opcConfig/*
+#opcConfig설정은 전송목록에 제외한다.
