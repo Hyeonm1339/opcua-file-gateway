@@ -25,15 +25,17 @@ CONFIG = {}
 LAST_ROW_INFO_FILE = 'last_row_info.json' # 처리된 마지막 행 정보를 저장할 파일
 MAX_WORKERS = 5 # 동시에 처리할 최대 파일 수
 
-# --- 1. 데이터 처리 로직 (기존과 동일) ---
+# --- 1. 데이터 처리 로직 (수정) ---
 
-def load_excel_data(filename, dataid, headerline):
+def load_excel_data(filename, dataid, headerline, columnline):
     """
     .xls 또는 .xlsx 파일을 읽어 Pandas DataFrame으로 변환.
+    columnline을 사용하여 데이터 시작점 이전의 행을 건너뜁니다.
     """
     try:
         header_config = None
         is_multi_header = False
+        effective_header_line_num = 1  # 기본값
 
         header_str = str(headerline)
         if header_str.startswith('[') and header_str.endswith(']'):
@@ -41,19 +43,42 @@ def load_excel_data(filename, dataid, headerline):
                 header_list = json.loads(header_str)
                 header_config = [h - 1 for h in header_list]
                 is_multi_header = True
-            except json.JSONDecodeError:
+                effective_header_line_num = max(header_list)
+            except (json.JSONDecodeError, ValueError):
                 header_config = 0
+                effective_header_line_num = 1
         elif header_str.isdigit():
             header_config = int(header_str) - 1
+            effective_header_line_num = int(header_str)
         else:
             header_config = 0
+            effective_header_line_num = 1
 
         all_sheets_df = pd.read_excel(filename, header=header_config, sheet_name=None)
         
+        try:
+            columnline_num = int(columnline)
+            df_starts_at_line = effective_header_line_num + 1
+            rows_to_skip = columnline_num - df_starts_at_line
+            if rows_to_skip < 0:
+                rows_to_skip = 0
+        except (ValueError, TypeError):
+            rows_to_skip = 0
+
         processed_sheets = {}
         for sheet_name, sheet_df in all_sheets_df.items():
             if sheet_df.empty:
                 continue
+
+            # columnline 로직 적용: DataFrame의 시작 부분에서 불필요한 행 건너뛰기
+            if rows_to_skip > 0:
+                if len(sheet_df) > rows_to_skip:
+                    print(f"[INFO] 시트 '{sheet_name}'의 시작 데이터 행({columnline_num})에 따라 상위 {rows_to_skip}개 행을 건너뜁니다.")
+                    sheet_df = sheet_df.iloc[rows_to_skip:].reset_index(drop=True)
+                else:
+                    # 건너뛸 행이 데이터보다 많으면 빈 DataFrame이 됨
+                    print(f"[WARNING] 시트 '{sheet_name}'에서 건너뛸 행({rows_to_skip})이 전체 행 수({len(sheet_df)})보다 많아 데이터가 없습니다.")
+                    continue
 
             if is_multi_header:
                 new_cols = []
@@ -98,8 +123,25 @@ def load_excel_data(filename, dataid, headerline):
             sheet_df = sheet_df[unique_columns]
             # --- 중복 컬럼 제거 로직 끝 ---
 
+            if sheet_df.empty:
+                continue
+
             input_df = sheet_df.rename(columns={sheet_df.columns[0]: 'TIME'})
+            
+            # --- DEBUGGING TIME PARSING ---
+            if not input_df.empty:
+                print(f"[DEBUG] 시트 '{sheet_name}'의 TIME 컬럼 파싱 시도 (원본 데이터 예시: {input_df['TIME'].iloc[0]})")
+            # --- END DEBUGGING ---
+
+            original_time_column = input_df['TIME'].copy()
             input_df['TIME'] = pd.to_datetime(input_df['TIME'], errors='coerce')
+            
+            # --- DEBUGGING TIME PARSING ---
+            failed_rows = original_time_column[input_df['TIME'].isna()]
+            if not failed_rows.empty:
+                print(f"[WARNING] 시트 '{sheet_name}'에서 TIME 컬럼 파싱 실패한 행 발견 (총 {len(failed_rows)}개). 예시: {failed_rows.head(3).tolist()}")
+            # --- END DEBUGGING ---
+
             input_df.dropna(subset=['TIME'], inplace=True)
             processed_sheets[sheet_name] = input_df
         
@@ -112,16 +154,17 @@ def load_excel_data(filename, dataid, headerline):
 
 def loaddata(filepath, params):
     dataid = params.get('dataid')
-    headerline = params.get('headerline', 1)
+    headerline = params.get('headerline', '1')
+    columnline = params.get('columnline', '1')
     ext = os.path.splitext(filepath)[-1].lower()
     
     if ext in ['.xls', '.xlsx']:
-        return load_excel_data(filepath, dataid, headerline)
+        return load_excel_data(filepath, dataid, headerline, columnline)
     else:
         print(f"[WARNING] 지원하지 않는 파일 형식: {ext}")
         return None
 
-# --- 2. OPC-UA 전송 태스크 (수정) ---
+# --- 2. OPC-UA 전송 태스크 (기존과 동일) ---
 
 def sendopcua_task(filepath, params, last_row_info):
     """
@@ -153,8 +196,12 @@ def sendopcua_task(filepath, params, last_row_info):
             last_processed_time_str = last_row_info.get(file_sheet_key)
             
             if last_processed_time_str:
-                last_processed_time = datetime.strptime(last_processed_time_str, '%Y-%m-%d %H:%M:%S')
-                df_to_send = df[df['TIME'] > last_processed_time].copy()
+                try:
+                    last_processed_time = datetime.strptime(last_processed_time_str, '%Y-%m-%d %H:%M:%S')
+                    df_to_send = df[df['TIME'] > last_processed_time].copy()
+                except ValueError:
+                    print(f"[WARNING] 날짜 형식 오류로 '{file_sheet_key}'의 전체 데이터를 재처리합니다: {last_processed_time_str}")
+                    df_to_send = df.copy()
             else:
                 df_to_send = df.copy()
 
@@ -221,7 +268,7 @@ def sendopcua_task(filepath, params, last_row_info):
             client.disconnect()
         return None
 
-# --- 3. 메인 처리 함수 (수정) ---
+# --- 3. 메인 처리 함수 (기존과 동일) ---
 
 def process_all_files():
     """
@@ -259,9 +306,13 @@ def process_all_files():
                     param_filepath = filepath + '.json'
                     if not os.path.exists(param_filepath): continue
 
-                    with open(param_filepath, 'r', encoding='utf-8') as f:
-                        params = json.load(f)
-                    tasks.append({'filepath': filepath, 'params': params})
+                    try:
+                        with open(param_filepath, 'r', encoding='utf-8') as f:
+                            params = json.load(f)
+                        tasks.append({'filepath': filepath, 'params': params})
+                    except (json.JSONDecodeError, FileNotFoundError) as e:
+                        print(f"[WARNING] 메타데이터 파일({param_filepath}) 처리 중 오류: {e}")
+
     except Exception as e:
         print(f"[ERROR] 파일 스캔 중 예외 발생: {e}")
         traceback.print_exc()
@@ -278,23 +329,27 @@ def process_all_files():
         future_to_task = {executor.submit(sendopcua_task, task['filepath'], task['params'], last_row_info): task for task in tasks}
         
         for future in as_completed(future_to_task):
+            task_filepath = future_to_task[future]['filepath']
             try:
                 result_list = future.result()
                 if result_list:
                     for file_sheet_key, new_time in result_list:
                         new_results[file_sheet_key] = new_time
             except Exception as e:
-                print(f"[ERROR] 태스크 실행 결과 처리 중 오류: {e}")
+                print(f"[ERROR] 태스크 실행({task_filepath}) 결과 처리 중 오류: {e}")
 
     # 4. 모든 작업 완료 후, 마지막 처리 정보 일괄 업데이트
     if new_results:
         print(f"[INFO] 총 {len(new_results)}개의 파일/시트 정보가 갱신됩니다.")
         last_row_info.update(new_results)
-        with open(LAST_ROW_INFO_FILE, 'w', encoding='utf-8') as f:
-            json.dump(last_row_info, f, indent=2)
-        print(f"[INFO] {LAST_ROW_INFO_FILE} 파일에 성공적으로 기록했습니다.")
+        try:
+            with open(LAST_ROW_INFO_FILE, 'w', encoding='utf-8') as f:
+                json.dump(last_row_info, f, indent=2)
+            print(f"[INFO] {LAST_ROW_INFO_FILE} 파일에 성공적으로 기록했습니다.")
+        except Exception as e:
+            print(f"[ERROR] {LAST_ROW_INFO_FILE} 파일 쓰기 오류: {e}")
 
-# --- 4. 실행 블록 ---
+# --- 4. 실행 블록 (기존과 동일) ---
 if __name__ == '__main__':
     # 1. 설정 파일 로드
     try:
@@ -312,11 +367,13 @@ if __name__ == '__main__':
     if save_path_init:
         try:
             os.listdir(save_path_init)
+            print(f"[INFO] 파일 시스템 경로({save_path_init})에 접근 가능합니다.")
         except Exception as e:
             print(f"[WARNING] 파일 시스템 경로 초기화 실패: {e}")
 
     # 3. 메인 처리 루프 실행
-    print(f"[INFO] 워커가 지속적인 실행 모드로 시작됩니다. (10초 간격, 최대 스레드: {MAX_WORKERS})")
+    scan_interval = CONFIG.get('scan_interval', 10)
+    print(f"[INFO] 워커가 지속적인 실행 모드로 시작됩니다. ({scan_interval}초 간격, 최대 스레드: {MAX_WORKERS})")
     while True:
         process_all_files()
-        time.sleep(10)
+        time.sleep(scan_interval)
