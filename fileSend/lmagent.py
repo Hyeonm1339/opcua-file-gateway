@@ -30,7 +30,7 @@ def getValue(obj, key, defval):
     else:
         return defval
 
-def get_files_to_send(paths_str, dataids_str, headerlines_str, fexts_str, last_check_time):
+def get_files_to_send(paths_str, dataids_str, headerlines_str, columnlines_str, fexts_str, last_check_time):
     # 전송해야 할 파일 목록을 찾아내는 함수이다.
     # 마지막 확인 시간(last_check_time) 이후에 수정된 파일만 대상으로 한다.
     
@@ -42,6 +42,7 @@ def get_files_to_send(paths_str, dataids_str, headerlines_str, fexts_str, last_c
     fexts = fexts_str.split(",")
     # headerline 문자열을 파싱하여 리스트로 변환 (예: "1,1,[1,2],1" -> ['1', '1', '[1,2]', '1'])
     headerlines = re.findall(r'(\[[^\]]+\]|[^,]+)', headerlines_str)
+    columnlines = re.findall(r'(\[[^\]]+\]|[^,]+)', columnlines_str)
 
     logging.info("get_files_to_send: 스캔 시작")
     # 각 경로를 순회하며 파일을 스캔한다.
@@ -57,6 +58,7 @@ def get_files_to_send(paths_str, dataids_str, headerlines_str, fexts_str, last_c
 
         dataid = dataids[index]
         headerline = headerlines[index] # 현재 경로에 맞는 headerline을 가져옴
+        columnline = columnlines[index] # 현재 경로에 맞는 columnline을 가져옴
         # 디렉토리 내의 각 파일에 대해 처리.
         for file in files:
             # 파일 이름과 확장자를 소문자로 분리.
@@ -79,6 +81,7 @@ def get_files_to_send(paths_str, dataids_str, headerlines_str, fexts_str, last_c
                             'file_path': file_path,
                             'dataid': dataid,
                             'headerline': headerline,
+                            'columnline': columnline,
                             'mtime': mtime
                         })
                 except FileNotFoundError:
@@ -146,6 +149,7 @@ if __name__ == '__main__':
         scan_interval = getValue(config, 'scan_interval', 60)
         lastchktime_str = getValue(config, 'lastchktime', "1970-01-01 00:00:00")
         headerline_str = getValue(config, 'headerline', '1') 
+        columnline_str = getValue(config, 'columnline', '1')
 
         # 마지막 확인 시간을 문자열에서 타임스탬프(float)로 변환.
         # 밀리초 포맷과 기존 포맷을 모두 지원하기 위한 예외 처리
@@ -157,7 +161,7 @@ if __name__ == '__main__':
         logging.info("설정된 시간({}) 이후로 수정된 파일을 스캔합니다...".format(lastchktime_str))
         
         # --- 3. 전송 대상 파일 목록 가져오기 ---
-        slist = get_files_to_send(scan_path_str, dataid_str, headerline_str, scan_file_str, lastmtime_ts)
+        slist = get_files_to_send(scan_path_str, dataid_str, headerline_str, columnline_str, scan_file_str, lastmtime_ts)
 
         # --- 4. 파일 전송 처리 ---
         if not slist:
@@ -165,7 +169,7 @@ if __name__ == '__main__':
             logging.info("새로 전송할 파일이 없습니다.")
             # 파일이 없더라도 게이트웨이 서버에 살아있다는 신호(live check)를 보낼 수 있음 (선택 사항).
             try:
-                params = {'deviceid': deviceid, 'dataid': "-", 'path': "-", 'orgfilename': '-', 'headerline': '-', 'params': "deviceid,dataid,path,orgfilename,headerline"}
+                params = {'deviceid': deviceid, 'dataid': "-", 'path': "-", 'orgfilename': '-', 'headerline': '-', 'columnline': '-', 'params': "deviceid,dataid,path,orgfilename,headerline,columnline"}
                 upload = {'filename': ""}
                 requests.post(url=gateway_url, timeout=10, data=params, files=upload)
             except Exception as e:
@@ -178,6 +182,7 @@ if __name__ == '__main__':
                 file_path = f_info['file_path']
                 current_dataid = f_info['dataid']
                 current_headerline = f_info['headerline']
+                current_columnline = f_info['columnline']
                 file_mtime = f_info['mtime']
                 
                 path_parts = os.path.split(file_path)
@@ -196,7 +201,8 @@ if __name__ == '__main__':
                             'path': current_dataid, # 원본 로직에 따라 path를 dataid로 설정.
                             'orgfilename': fname,
                             'headerline': current_headerline, # 매칭된 headerline 파라미터 추가
-                            'params': "deviceid,dataid,filename,path,orgfilename,headerline"
+                            'columnline': current_columnline,
+                            'params': "deviceid,dataid,filename,path,orgfilename,headerline,columnline"
                         }
 
                         # HTTP POST 요청으로 파일 전송.

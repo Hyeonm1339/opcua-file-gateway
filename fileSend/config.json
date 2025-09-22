@@ -6,5 +6,6 @@
   "scan_file": ".csv,.xls,.xlsx,.dbf",
   "scan_interval": 60,
   "lastchktime": "2025-09-01 00:00:00",
-  "headerline": "1,1,[1,2],1"
+  "headerline": "1,1,[1,2],1",
+  "columnlin": "4,4,4,4"
 }
