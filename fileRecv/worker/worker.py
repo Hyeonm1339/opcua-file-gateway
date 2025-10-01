@@ -10,6 +10,7 @@ import time
 import traceback
 import threading
 from datetime import datetime
+from os.path import basename
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
@@ -27,10 +28,46 @@ MAX_WORKERS = 5 # 동시에 처리할 최대 파일 수
 
 # --- 1. 데이터 처리 로직 (수정) ---
 
+def parse_flexible_time(time_val, fdate=None):
+    """
+    여러 형식의 시간 문자열을 파싱하여 datetime 객체로 변환하는 함수.
+    """
+    if pd.isna(time_val):
+        return pd.NaT
+        
+    time_str = str(time_val)
+
+    # 시도할 형식과 전처리 로직의 리스트
+    # 각 항목은 (전처리 함수, strptime 포맷)의 튜플
+    # 전처리 함수는 (원본문자열, 파일날짜)를 인자로 받아 파싱할 문자열을 반환한다. 아무것도 반환하지 못할경우 에러처리.
+    parsing_strategies = [
+        # 형식 1: '24년1월1일 10시20분30초' -> '24-01-01 10:20:30'
+        (lambda s, d: s.replace("년", "-").replace("월", "-").replace("일", " ").replace("시", ":").replace("분", ":").replace("초", ""), '%y-%m-%d %H:%M:%S'),
+        
+        # 형식 2: '2024/01/01 10:20' 또는 '10:20:30' (날짜가 없는경우 넘겨받은 파일의 날짜를 사용(fdata)
+        (lambda s, d: f"{d} {s}" if d and len(s) < 12 and ':' in s else (s + ":00")[:19].replace("/", "-"), '%Y-%m-%d %H:%M:%S'),
+
+        # 형식 3: '2024.01.01 10:20:30' 또는 '24.01.01 10:20:30'
+        (lambda s, d: s.replace(".", "-"), '%Y-%m-%d %H:%M:%S'),
+        (lambda s, d: s.replace(".", "-"), '%y-%m-%d %H:%M:%S'),
+    ]
+
+    for preprocess, fmt in parsing_strategies:
+        try:
+            processed_str = preprocess(time_str, fdate)
+            return datetime.strptime(processed_str, fmt)
+        except (ValueError, TypeError):
+            continue
+            
+    # 모든 형식 변환 실패 시, pandas의 자동 파싱 기능을 마지막으로 시도
+    # errors='coerce'는 파싱 실패 시 NaT (Not a Time)을 반환하여 오류를 방지
+    return pd.to_datetime(time_str, errors='coerce')
+
+
 def load_excel_data(filename, dataid, headerline, columnline):
     """
     .xls 또는 .xlsx 파일을 읽어 Pandas DataFrame으로 변환.
-    columnline을 사용하여 데이터 시작점 이전의 행을 건너뜁니다.
+    columnline을 사용하여 데이터 시작점 이전의 행을 건너뛰고, 명시된 TIME 포맷으로 파싱합니다.
     """
     try:
         header_config = None
@@ -76,7 +113,6 @@ def load_excel_data(filename, dataid, headerline, columnline):
                     print(f"[INFO] 시트 '{sheet_name}'의 시작 데이터 행({columnline_num})에 따라 상위 {rows_to_skip}개 행을 건너뜁니다.")
                     sheet_df = sheet_df.iloc[rows_to_skip:].reset_index(drop=True)
                 else:
-                    # 건너뛸 행이 데이터보다 많으면 빈 DataFrame이 됨
                     print(f"[WARNING] 시트 '{sheet_name}'에서 건너뛸 행({rows_to_skip})이 전체 행 수({len(sheet_df)})보다 많아 데이터가 없습니다.")
                     continue
 
@@ -97,15 +133,12 @@ def load_excel_data(filename, dataid, headerline, columnline):
                     new_cols.append(combined_col)
                 sheet_df.columns = new_cols
 
-            # --- "Unnamed:" 컬럼 제거 로직 ---
             cols_to_keep = [col for col in sheet_df.columns if 'Unnamed:' not in str(col)]
             if len(cols_to_keep) < len(sheet_df.columns):
                 dropped_cols = [col for col in sheet_df.columns if 'Unnamed:' in str(col)]
                 print(f"[INFO] 시트 '{sheet_name}'에서 'Unnamed' 컬럼 {dropped_cols}을 무시합니다.")
             sheet_df = sheet_df[cols_to_keep]
-            # --- 로직 끝 ---
 
-            # --- 중복 컬럼 제거 로직 V2 ---
             all_columns = sheet_df.columns.tolist()
             unique_columns = []
             seen_originals = set()
@@ -121,28 +154,46 @@ def load_excel_data(filename, dataid, headerline, columnline):
                 dropped_cols = [col for col in all_columns if col not in unique_columns]
                 print(f"[INFO] 시트 '{sheet_name}'에서 중복 컬럼 {dropped_cols}을 무시합니다.")
             sheet_df = sheet_df[unique_columns]
-            # --- 중복 컬럼 제거 로직 끝 ---
 
-            if sheet_df.empty:
+            if sheet_df.empty or sheet_df.columns.empty:
                 continue
 
             input_df = sheet_df.rename(columns={sheet_df.columns[0]: 'TIME'})
             
-            # --- DEBUGGING TIME PARSING ---
-            if not input_df.empty:
-                print(f"[DEBUG] 시트 '{sheet_name}'의 TIME 컬럼 파싱 시도 (원본 데이터 예시: {input_df['TIME'].iloc[0]})")
-            # --- END DEBUGGING ---
-
-            original_time_column = input_df['TIME'].copy()
-            input_df['TIME'] = pd.to_datetime(input_df['TIME'], errors='coerce')
-            
-            # --- DEBUGGING TIME PARSING ---
-            failed_rows = original_time_column[input_df['TIME'].isna()]
-            if not failed_rows.empty:
-                print(f"[WARNING] 시트 '{sheet_name}'에서 TIME 컬럼 파싱 실패한 행 발견 (총 {len(failed_rows)}개). 예시: {failed_rows.head(3).tolist()}")
-            # --- END DEBUGGING ---
-
+            # 파싱 전 TIME 컬럼이 비어있는 행을 먼저 제거
             input_df.dropna(subset=['TIME'], inplace=True)
+            if input_df.empty:
+                print(f"[INFO] 시트 '{sheet_name}'에 유효한 시간 데이터가 없어 건너뜁니다.")
+                continue
+
+            print(f"[DEBUG] 시트 '{sheet_name}'의 TIME 컬럼 파싱 시도 (원본 데이터 예시: {input_df['TIME'].iloc[0]})")
+            
+            original_time_column = input_df['TIME'].copy()
+            
+            # --- 유연한 시간 파싱 로직 ---
+            # 파일명에서 날짜 추출 (시간만 있는 데이터에 사용)
+            fdate = None
+            try:
+                fname = basename(filename).split(".")
+                fdate_str = fname[0].split("_")[-1]
+                # 'YYYY년MM월DD일' 또는 'YYYY-MM-DD' 같은 형식을 '%Y-%m-%d'로 통일
+                cleaned_fdate_str = fdate_str.replace("년", "-").replace("월", "-").replace("일", "")
+                fdate = datetime.strptime(cleaned_fdate_str, '%Y-%m-%d').strftime('%Y-%m-%d')
+            except (ValueError, IndexError):
+                print(f"[WARNING] 파일명 '{basename(filename)}'에서 날짜를 추출할 수 없습니다. 시간만 있는 데이터는 파싱에 실패할 수 있습니다.")
+
+            # TIME값을 일괄 처리하기 위한 공통 함수를 호출한다.
+            input_df['TIME'] = input_df['TIME'].apply(lambda x: parse_flexible_time(x, fdate=fdate))
+            
+            # 파싱에 실패한 행(NaT)이 있는지 확인하고 경고
+            failed_mask = input_df['TIME'].isna()
+            if failed_mask.any():
+                failed_count = failed_mask.sum()
+                failed_examples = original_time_column[failed_mask].head(3).tolist()
+                print(f"[WARNING] 시트 '{sheet_name}'에서 TIME 컬럼 파싱 실패 (총 {failed_count}개). 예시: {failed_examples}")
+                # 파싱 실패한 행 최종 제거
+                input_df.dropna(subset=['TIME'], inplace=True)
+
             processed_sheets[sheet_name] = input_df
         
         return processed_sheets

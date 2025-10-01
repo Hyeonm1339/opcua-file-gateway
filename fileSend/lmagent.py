@@ -74,8 +74,8 @@ def get_files_to_send(paths_str, dataids_str, headerlines_str, columnlines_str, 
                 try:
                     # 파일의 최종 수정 시간을 타임스탬프로 가져온다.
                     mtime = os.path.getmtime(file_path)
-                    # 파일의 수정 시간이 마지막 확인 시간보다 최신인 경우.
-                    if mtime > last_check_time:
+                    # 파일의 수정 시간이 마지막 확인 시간과 같거나 최신인 경우. (중복은 메인 로직에서 제거)
+                    if mtime >= last_check_time:
                         # 전송 목록에 파일 정보(경로, 데이터 ID, 헤더라인, 수정 시간)를 추가.
                         files_to_send.append({
                             'file_path': file_path,
@@ -162,6 +162,13 @@ if __name__ == '__main__':
         
         # --- 3. 전송 대상 파일 목록 가져오기 ---
         slist = get_files_to_send(scan_path_str, dataid_str, headerline_str, columnline_str, scan_file_str, lastmtime_ts)
+
+        # 중복 전송 방지: >= 비교로 인해 마지막 전송 파일이 포함될 수 있으므로, mtime이 거의 동일하면 목록에서 제거
+        # 부동소수점 정밀도 문제를 피하기 위해 작은 수(epsilon)보다 작은지 확인.
+        # lastmtime_ts가 0보다 큰 경우(즉, 초기 실행이 아닌 경우)에만 이 로직을 적용.
+        if slist and lastmtime_ts > 0 and abs(slist[0]['mtime'] - lastmtime_ts) < 0.000001:
+            logging.info(f"마지막 전송 파일과 동일하여 목록에서 제외: {os.path.basename(slist[0]['file_path'])}")
+            slist.pop(0)
 
         # --- 4. 파일 전송 처리 ---
         if not slist:
